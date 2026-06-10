@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
+from torch.utils.data import Dataset, DataLoader
+
 
 class RotaryPositionEmbedding(nn.Module):
     def __init__(self, config):
@@ -129,17 +131,6 @@ class Block(nn.Module):
         return x
 
 
-@dataclass
-class NanoQwenConfig:
-    vocab_size: int = 32
-    max_seq_len: int = 512
-    hidden_dim: int = 256
-    intermediate_dim: int = 1024
-    num_heads: int = 4
-    num_kv_groups: int = 2
-    num_layers: int = 4
-    theta: float = 1000000.0
-    rms_norm_eps: float = 1e-6
 
 
 class NanoQwen(nn.Module):
@@ -176,7 +167,24 @@ class NanoQwen(nn.Module):
 
         return logits, loss
     
+    @classmethod
+    def generate(model, tokenizer, maze_tokens: list[str]):
+        model.eval()
 
+        input_ids = tokenizer.encode(maze_tokens)
+
+        x = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0)
+        x = x.to(next(model.parameters()).device)
+
+        generated = []
+
+        with torch.no_grad():
+            for _ in range(NanoQwenConfig.max_sequence_len):
+                logits, _ = model(x)
+
+
+
+        
 if __name__ == "__main__":
     config = NanoQwenConfig()
     model = NanoQwen(config)
