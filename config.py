@@ -11,3 +11,19 @@ class NanoQwenConfig:
     num_layers: int = 4
     theta: float = 1000000.0
     rms_norm_eps: float = 1e-6
+    device="cuda"
+    checkpoint_path="checkpoints/nanoqwen.pt"
+
+
+    batch_size=64
+    epochs=100
+
+
+
+@dataclass
+class RLHFConfig(NanoQwenConfig):
+    G: int =5  # number of completions per prompt during training (grpo)
+    clip_coef: float = 0.2
+    kl_coef: float = 0.1
+    grad_clip: float = 1.0
+    lr: float = 1e-6

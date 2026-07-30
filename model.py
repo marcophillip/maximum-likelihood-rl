@@ -137,6 +137,8 @@ class NanoQwen(nn.Module):
     def __init__(self, config):
         super().__init__()
 
+        self.config = config
+
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.hidden_dim),
             h = nn.ModuleList([Block(config) for _ in range(config.num_layers)]),
@@ -151,47 +153,72 @@ class NanoQwen(nn.Module):
         n_params = sum(p.numel() for p in self.parameters())
         return n_params
         
-    def forward(self, input_ids, targets=None):
+    def forward(self, input_ids, targets=None, return_last_only=False):
         x = self.transformer.wte(input_ids)
 
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
 
+        
+
+        if return_last_only:
+            logits = self.lm_head(x[:, [-1], :]).squeeze(1)  # B, v
+            return logits, None
+        
+        logits = self.lm_head(x)  # B, t, v
+        loss = None
         if targets is not None:
-            logits = self.lm_head(x)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
-        else:
-            logits = self.lm_head(x[:, [-1], :]).squeeze(1)
-            loss = None
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)),
+                                    targets.view(-1),
+                                    ignore_index=-100)
 
         return logits, loss
     
-    @classmethod
-    def generate(model, tokenizer, maze_tokens: list[str]):
-        model.eval()
+    
+    @torch.no_grad()
+    def generate(self, tokenizer, maze_tokens: str, temperature=1.0):
 
-        input_ids = tokenizer.encode(maze_tokens)
+        # if temp is 0, thats greedy decoding
+        self.eval()
+
+        input_ids = tokenizer.encode(maze_tokens).ids
 
         x = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0)
-        x = x.to(next(model.parameters()).device)
+        x = x.to(next(self.parameters()).device)
+
+        eos_id = tokenizer.encode("<eos>").ids[0]
 
         generated = []
 
-        with torch.no_grad():
-            for _ in range(NanoQwenConfig.max_sequence_len):
-                logits, _ = model(x)
+        for _ in range(self.config.max_seq_len - x.size(1)):
+            logits, _ = self(x, return_last_only=True)
 
+            if temperature ==0:
+                next_id = logits.argmax(dim=-1, keepdim=True)
 
+            else:
+                probs = F.softmax(logits/temperature, dim=-1)
+                next_id = torch.multinomial(probs, num_samples=1)
+        
+            generated.append(next_id.item())
+
+            if next_id == eos_id:
+                break
+
+            x= torch.cat([x, next_id], dim=-1)
 
         
-if __name__ == "__main__":
-    config = NanoQwenConfig()
-    model = NanoQwen(config)
+        return tokenizer.decode(generated)
 
-    input_ids = torch.randint(0, config.vocab_size, (2, 16))
-    targets = torch.randint(0, config.vocab_size, (2, 16))
+        
+# if __name__ == "__main__":
+#     config = NanoQwenConfig()
+#     model = NanoQwen(config)
 
-    logits, loss = model(input_ids, targets)
-    print(f"Logits shape: {logits.shape}, Loss: {loss.item()}")
+#     input_ids = torch.randint(0, config.vocab_size, (2, 16))
+#     targets = torch.randint(0, config.vocab_size, (2, 16))
+
+#     logits, loss = model(input_ids, targets)
+#     print(f"Logits shape: {logits.shape}, Loss: {loss.item()}")
 
