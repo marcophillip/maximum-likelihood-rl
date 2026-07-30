@@ -83,12 +83,17 @@ class RLHFTrainer:
         self.tokenizer= _tokenizer()
 
 
-        self.optimizer = torch.optim.AdamW(self.model.parameters())
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
         self.group_size = self.config.G
         self.clip_coef = self.config.clip_coef
         self.kl_coef = self.config.kl_coef
         self.grad_clip = self.config.grad_clip
         self.lr = self.config.lr
+
+
+        rl_dataset = MazeDataset_RL(tokenizer=self.tokenizer, json_file_path="data/train.json")
+        self.rl_dataloader = DataLoader(rl_dataset, batch_size=self.config.batch_size, shuffle=True)
+        self._data_iter = iter(self.rl_dataloader)
 
     @torch.no_grad()
     def rollout(self, prompts):
@@ -195,26 +200,37 @@ class RLHFTrainer:
 
         return -surrogate  + kl, kl
         
+    def _next_batch(self):
+        try:
+            return next(self._data_iter)
+        except StopIteration:                      # epoch boundary -> reshuffle
+            self._data_iter = iter(self.rl_dataloader)
+            return next(self._data_iter)
+
 
     def train_one_batch(self):
-        rl_dataset = MazeDataset_RL(tokenizer=self.tokenizer, json_file_path="data/train.json")
-        rl_dataloader = DataLoader(rl_dataset, batch_size=self.config.batch_size, shuffle=True)
+        # rl_dataset = MazeDataset_RL(tokenizer=self.tokenizer, json_file_path="data/train.json")
+        # rl_dataloader = DataLoader(rl_dataset, batch_size=self.config.batch_size, shuffle=True)
 
 
         self.model.train()
         
-        batch = next(iter(rl_dataloader))
-        prompts, optimal_lens = batch
+        # batch = next(iter(rl_dataloader))
+        # prompts, optimal_lens = batch
+
+        prompts, optimal_lens = self._next_batch()
+
 
         tokens, completion_mask, old_logprobs = self.rollout(prompts)
         rewards = self.compute_rewards(prompts, tokens[:, -completion_mask.size(1):], optimal_lens)
         advantages = compute_advantages(rewards, self.config.G).detach()
 
+        self.model.train()
         losses=0
         kls=0
         for _ in range(2):
             
-            self.model.train()
+            
 
             loss, kl = self.compute_objective(tokens, completion_mask, old_logprobs, advantages, rewards)
             self.optimizer.zero_grad()

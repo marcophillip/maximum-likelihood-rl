@@ -1,5 +1,7 @@
 data/train.parquet
 data/
 wandb/
+checkpoints/
+checkpoint_epoch*
 __*
 .*

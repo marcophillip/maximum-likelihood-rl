@@ -12,7 +12,7 @@ class NanoQwenConfig:
     theta: float = 1000000.0
     rms_norm_eps: float = 1e-6
     device="cuda"
-    checkpoint_path="checkpoints/nanoqwen.pt"
+    checkpoint_path="checkpoints/nanoqwen_1500.pt"
 
 
     batch_size=64
