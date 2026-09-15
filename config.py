@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import torch
+
 
 @dataclass
 class NanoQwenConfig:
@@ -11,19 +13,34 @@ class NanoQwenConfig:
     num_layers: int = 4
     theta: float = 1000000.0
     rms_norm_eps: float = 1e-6
-    device="cuda"
-    checkpoint_path="checkpoints/nanoqwen_1500.pt"
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    checkpoint_path: str = "checkpoints/nanoqwen_1500.pt"   # SFT checkpoint (paper: 1500 SFT steps)
 
-
-    batch_size=64
-    epochs=100
-
+    batch_size: int = 64
+    epochs: int = 100
 
 
 @dataclass
 class RLHFConfig(NanoQwenConfig):
-    G: int =5  # number of completions per prompt during training (grpo)
-    clip_coef: float = 0.2
-    kl_coef: float = 0.1
+
+    G: int = 32                     # rollouts per prompt (paper sweeps 4..128)
+    batch_size: int = 64            # prompts per RL step (paper: 256)
+    lr: float = 1e-4                # paper: 1e-4
+    rl_steps: int = 3000            # paper: ~9000
+    ppo_epochs: int = 1             # one gradient step per rollout batch -> on-policy
+    clip_coef: float = 0.2          # verl default; a no-op when ppo_epochs == 1
     grad_clip: float = 1.0
-    lr: float = 1e-6
+    adv_eps: float = 1e-6           # epsilon in (r - r_hat) / (r_hat + eps)
+
+    # memory knobs: B*G sequences are processed in chunks of this size
+    rollout_micro_batch: int = 512
+    train_micro_batch: int = 256
+
+    # held-out evaluation: pass@k with temperature-1 sampling (paper's metric)
+    eval_every: int = 100
+    eval_prompts: int = 400         # val.json has 400 mazes
+    eval_n: int = 8                 # samples per val prompt
+    eval_pass_k: tuple = (1, 4, 8)
+
+    save_every: int = 250
+    save_dir: str = "checkpoints/maxrl"
