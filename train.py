@@ -13,8 +13,6 @@ import wandb
 class MazeSFTTrainer:
     def __init__(self, config):
 
-
-
         self.model = NanoQwen(config)
         self.model = self.model.to("cuda:0")
         self.model.train()
@@ -46,7 +44,7 @@ class MazeSFTTrainer:
 
 
     def train(self):
-        pbar = tqdm(range(15000), desc="Training")
+        pbar = tqdm(range(1500), desc="Training")
         for steps  in pbar:
             input_ids, labels = next(iter(self.train_dataloader))
             input_ids, labels = input_ids.to("cuda"), labels.to("cuda")
