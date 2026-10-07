@@ -63,6 +63,8 @@ class MaxRLTrainer:
         self.pad_id = self.tokenizer.token_to_id("<pad>")
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=cfg.lr, weight_decay=0.0)
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(
+            self.optimizer, lambda s: min(1.0, (s + 1) / max(1, cfg.warmup_steps)))
 
         train_ds = MazeDataset_RL(tokenizer=self.tokenizer, json_file_path="data/train.json")
         self.train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True, drop_last=True)
@@ -99,7 +101,7 @@ class MaxRLTrainer:
         cfg = self.config
         x_all = prompt_ids.repeat_interleave(n, dim=0)
         prompt_len = x_all.size(1)
-        max_new = cfg.max_seq_len - prompt_len
+        max_new = min(cfg.max_new_tokens, cfg.max_seq_len - prompt_len)
 
         gens, logps = [], []
         for s in range(0, x_all.size(0), cfg.rollout_micro_batch):
@@ -162,6 +164,8 @@ class MaxRLTrainer:
         total_tokens = mask.sum().clamp(min=1).float()
         N = tokens.size(0)
         loss_total = 0.0
+        entropy_sum, kl_sum, diag_tokens = 0.0, 0.0, 0.0
+        lr = self.optimizer.param_groups[0]["lr"]
         for _ in range(cfg.ppo_epochs):
             self.optimizer.zero_grad(set_to_none=True)
             for s in range(0, N, cfg.train_micro_batch):
@@ -171,13 +175,20 @@ class MaxRLTrainer:
                 logits, _ = self.model(tokens[sl])
                 comp_logits = logits[:, -T - 1:-1]     # positions that predict the T completion tokens
                 labels = tokens[sl][:, -T:]
-                new_logprobs = comp_logits.log_softmax(-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+                logp_all = comp_logits.log_softmax(-1)
+                new_logprobs = logp_all.gather(-1, labels.unsqueeze(-1)).squeeze(-1)
                 loss = policy_loss(new_logprobs, old_logprobs[sl], advantages[sl], mask[sl],
                                    cfg.clip_coef, total_tokens)
                 loss.backward()
                 loss_total += loss.item()
+                with torch.no_grad():                  # diagnostics on the tokens that carry gradient
+                    m = mask[sl].float()
+                    entropy_sum += (-(logp_all.exp() * logp_all).sum(-1) * m).sum().item()
+                    kl_sum += ((old_logprobs[sl] - new_logprobs) * m).sum().item()
+                    diag_tokens += m.sum().item()
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), cfg.grad_clip)
             self.optimizer.step()
+        self.scheduler.step()
 
         grouped = rewards.view(-1, cfg.G)
         group_pass = grouped.mean(dim=1)
@@ -190,10 +201,16 @@ class MaxRLTrainer:
             "train/adv_abs_mean": advantages.abs().mean().item(),
             "train/completion_len": mask.sum(dim=1).float().mean().item(),
             "train/format_err_frac": rstats["format_err_frac"],
+            "train/lr": lr,
+            # entropy / approx_kl are 0 on steps where every group was all-fail (no forward pass ran)
+            "train/entropy": entropy_sum / max(diag_tokens, 1.0),
+            "train/approx_kl": kl_sum / max(diag_tokens, 1.0),   # ~0 when on-policy (ppo_epochs == 1)
         }
         print(f"step {step:5d} | loss {log['train/loss']:+.4f} | pass {log['train/pass_rate']:.3f} | "
               f"all_fail {log['train/frac_groups_all_fail']:.2f} all_pass {log['train/frac_groups_all_pass']:.2f} | "
-              f"len {log['train/completion_len']:.1f} | fmt_err {log['train/format_err_frac']:.3f}")
+              f"len {log['train/completion_len']:.1f} | fmt_err {log['train/format_err_frac']:.3f} | "
+              f"lr {lr:.1e} | gnorm {log['train/grad_norm']:.3f} | ent {log['train/entropy']:.3f} | "
+              f"kl {log['train/approx_kl']:+.4f}")
         return log
 
     # eval step

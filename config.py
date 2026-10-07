@@ -25,8 +25,10 @@ class RLHFConfig(NanoQwenConfig):
 
     G: int = 32                     # rollouts per prompt (paper sweeps 4..128)
     batch_size: int = 64            # prompts per RL step (paper: 256)
-    lr: float = 1e-4                # paper: 1e-4
+    lr: float = 1e-5                # 1e-4 with a fresh Adam collapsed the policy in one step
+    warmup_steps: int = 50          # linear lr warmup; Adam's first steps are sign(g) * lr
     rl_steps: int = 3000            # paper: ~9000
+    max_new_tokens: int = 64        # paths are ~30 tokens; caps runaway no-DONE completions
     ppo_epochs: int = 1             # one gradient step per rollout batch -> on-policy
     clip_coef: float = 0.2          # verl default; a no-op when ppo_epochs == 1
     grad_clip: float = 1.0
