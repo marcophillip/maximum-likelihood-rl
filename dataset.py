@@ -25,7 +25,7 @@ def _tokenizer():
         direction="right"  # Options: "right" to drop trailing tokens, "left" to drop leading tokens
     )
 
-    pad_id = tok.token_to_id("<pad>")
+    # pad_id = tok.token_to_id("pad>")
     # tok.enable_padding(
     #     length=NanoQwenConfig.max_seq_len,    # Use 'length' here to specify the exact target token limit# Gets the integer ID of your [PAD] token
     #     pad_token="<pad>",

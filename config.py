@@ -13,10 +13,11 @@ class NanoQwenConfig:
     num_layers: int = 4
     theta: float = 1000000.0
     rms_norm_eps: float = 1e-6
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    checkpoint_path: str = "checkpoints/nanoqwen_1500.pt"   # SFT checkpoint (paper: 1500 SFT steps)
+    # device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    device: str = torch.device("mps") if torch.backends.mps.is_available() else "cpu"
+    checkpoint_path: str = "checkpoints/nanoqwen_1500.pt"  
 
-    batch_size: int = 64
+    batch_size: int = 128
     epochs: int = 100
 
 

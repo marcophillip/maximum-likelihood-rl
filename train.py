@@ -2,11 +2,10 @@ from dataset import MazeDataset, _tokenizer, collate_fn
 from model import NanoQwen
 from torch.utils.data import DataLoader
 import torch
-import wandb
 from tqdm import tqdm
 from config import NanoQwenConfig
 from functools import partial
-import wandb
+
 
 
 
@@ -14,7 +13,7 @@ class MazeSFTTrainer:
     def __init__(self, config):
 
         self.model = NanoQwen(config)
-        self.model = self.model.to("cuda:0")
+        self.model = self.model.to(config.device)
         self.model.train()
 
         self.config =config
@@ -47,7 +46,7 @@ class MazeSFTTrainer:
         pbar = tqdm(range(1500), desc="Training")
         for steps  in pbar:
             input_ids, labels = next(iter(self.train_dataloader))
-            input_ids, labels = input_ids.to("cuda"), labels.to("cuda")
+            input_ids, labels = input_ids.to(self.config.device), labels.to(self.config.device)
 
             self.optimizer.zero_grad()
             logits, loss = self.model(input_ids, labels)
